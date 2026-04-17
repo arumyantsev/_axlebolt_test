@@ -15,11 +15,22 @@ public class StatsOverlay : MonoBehaviour
     [Header("Display")]
     public bool showOverlay = true;
     public KeyCode toggleKey = KeyCode.F1;
-    public int fontSize = 16;
+    public int fontSize = 14;
     public Color textColor = new Color(1f, 1f, 0.4f, 1f);
     public Color backgroundColor = new Color(0f, 0f, 0f, 0.55f);
     [Tooltip("Частота обновления, раз в секунду")]
     public float updateHz = 4f;
+
+    [Header("Sizing")]
+    [Tooltip("Ручной множитель размера всего UI. 1 = автоматика по DPI с мягкой кривой.")]
+    [Range(0.3f, 3f)] public float uiScale = 1f;
+    [Tooltip("Панель не шире этой доли ширины экрана (чтобы не ела пол-экрана на планшете).")]
+    [Range(0.15f, 0.6f)] public float maxWidthRatio = 0.28f;
+
+    [Header("Toggle Button (mobile)")]
+    [Tooltip("Базовый размер кнопки; итог умножается на uiScale × dpiScale.")]
+    public int buttonSize = 56;
+    public int buttonMargin = 10;
 
     // Render stats
     private ProfilerRecorder drawCalls;
@@ -46,6 +57,7 @@ public class StatsOverlay : MonoBehaviour
     private long displayedDraws, displayedBatches, displayedTris, displayedVerts, displayedSetPass;
 
     private GUIStyle textStyle;
+    private GUIStyle buttonStyle;
     private Texture2D bgTexture;
     private readonly StringBuilder sb = new StringBuilder(512);
 
@@ -114,9 +126,20 @@ public class StatsOverlay : MonoBehaviour
 
     private void OnGUI()
     {
-        if (!showOverlay) return;
-
         EnsureStyle();
+
+        float dpiScale = CalcDpiScale();
+        float scale = dpiScale * uiScale;
+        float btn = buttonSize * scale;
+        float margin = buttonMargin * scale;
+
+        // Кнопка тоггла — всегда в правом верхнем углу, независимо от видимости панели
+        Rect btnRect = new Rect(Screen.width - btn - margin, margin, btn, btn);
+        string btnLabel = showOverlay ? "×" : "FPS";
+        if (GUI.Button(btnRect, btnLabel, buttonStyle))
+            showOverlay = !showOverlay;
+
+        if (!showOverlay) return;
 
         // "Saved by batching" = сколько draw call-ов убил SRP Batcher / static batching.
         // Когда батчинг работает, draws ≥ batches, разница = экономия.
@@ -134,33 +157,66 @@ public class StatsOverlay : MonoBehaviour
         sb.Append("Draw Calls:     ").AppendLine(displayedDraws.ToString());
         sb.Append("Batches:        ").AppendLine(displayedBatches.ToString());
         sb.Append("Saved by batch: ").AppendLine(savedByBatching.ToString());
-        sb.Append("SetPass:        ").Append(displayedSetPass.ToString());
+        sb.Append("SetPass:        ").AppendLine(displayedSetPass.ToString());
 
-        const float width = 280f;
-        float lineH = fontSize + 4;
-        float height = 14 * lineH;
-        Rect rect = new Rect(Screen.width - width - 10, 10, width, height);
+        // Grass debug — показывает что происходит с InstancedGrassRenderer в рантайме.
+        // Убрать после того как трава поднимется на мобилке.
+        var grass = FindObjectOfType<InstancedGrassRenderer>();
+        if (grass != null)
+        {
+            sb.AppendLine();
+            sb.Append("Grass inst: ").AppendLine(grass.InstanceCount.ToString());
+            sb.Append("Grass chunks: ").Append(grass.visibleChunks.ToString()).Append("/").AppendLine(grass.totalChunks.ToString());
+            sb.Append("Grass visible: ").AppendLine(grass.visibleInstances.ToString());
+            sb.Append("Mesh: ").AppendLine(grass.grassMesh != null ? grass.grassMesh.name : "NULL");
+            sb.Append("Mat: ").AppendLine(grass.grassMaterial != null ? grass.grassMaterial.name : "NULL");
+            sb.Append("Shader: ").Append(grass.grassMaterial != null && grass.grassMaterial.shader != null
+                ? grass.grassMaterial.shader.name : "NULL");
+        }
+
+        float width = Mathf.Min(280f * scale, Screen.width * maxWidthRatio);
+        float lineH = (fontSize + 4) * scale;
+        float height = 22 * lineH;
+        // Смещаем панель под кнопкой тоггла
+        Rect rect = new Rect(Screen.width - width - margin, btn + margin * 2f, width, height);
 
         GUI.DrawTexture(rect, bgTexture, ScaleMode.StretchToFill);
         GUI.Label(rect, sb.ToString(), textStyle);
     }
 
+    // Мягкая DPI-кривая: 160 dpi (lowend) → 1.0×, 440 dpi (Pixel 5) → ~1.5×, 550+ dpi → ~1.7×.
+    // Не даём UI разрастаться в 2-3 раза на high-DPI — вместо линейной зависимости sqrt,
+    // и потом ещё cap сверху. Так же, пользователь может добивать вручную через uiScale.
+    private static float CalcDpiScale()
+    {
+        float dpi = Screen.dpi > 0 ? Screen.dpi : 96f;
+        float raw = dpi / 160f;
+        float softened = Mathf.Sqrt(Mathf.Max(raw, 1f));
+        return Mathf.Clamp(softened, 1f, 1.8f);
+    }
+
     private void EnsureStyle()
     {
+        float dpiScale = CalcDpiScale();
+        float scale = dpiScale * uiScale;
+
         if (textStyle == null)
         {
             textStyle = new GUIStyle(GUI.skin.label);
-            textStyle.fontSize = fontSize;
-            textStyle.normal.textColor = textColor;
             textStyle.alignment = TextAnchor.UpperLeft;
-            textStyle.padding = new RectOffset(12, 12, 8, 8);
+            textStyle.padding = new RectOffset(10, 10, 6, 6);
             textStyle.richText = false;
         }
-        else if (textStyle.fontSize != fontSize || textStyle.normal.textColor != textColor)
+        textStyle.fontSize = Mathf.RoundToInt(fontSize * scale);
+        textStyle.normal.textColor = textColor;
+
+        if (buttonStyle == null)
         {
-            textStyle.fontSize = fontSize;
-            textStyle.normal.textColor = textColor;
+            buttonStyle = new GUIStyle(GUI.skin.button);
+            buttonStyle.alignment = TextAnchor.MiddleCenter;
+            buttonStyle.fontStyle = FontStyle.Bold;
         }
+        buttonStyle.fontSize = Mathf.RoundToInt(fontSize * 1.3f * scale);
 
         if (bgTexture == null)
         {

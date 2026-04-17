@@ -44,6 +44,11 @@ Shader "Axlebolt/FoliageInstanced"
             #pragma vertex vert
             #pragma fragment frag
 
+            // StructuredBuffer требует SM 4.5 + compute capability.
+            // Без этого на мобильных GLES/Vulkan шейдер компилится под SM 2.5 → StructuredBuffer вырезается → трава не рисуется.
+            #pragma target 4.5
+            #pragma require compute
+
             #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
             #pragma multi_compile _ _SHADOWS_SOFT
             #pragma multi_compile _ _ADDITIONAL_LIGHTS_VERTEX _ADDITIONAL_LIGHTS
@@ -245,6 +250,9 @@ Shader "Axlebolt/FoliageInstanced"
             HLSLPROGRAM
             #pragma vertex vertShadow
             #pragma fragment fragShadow
+
+            #pragma target 4.5
+            #pragma require compute
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/CommonMaterial.hlsl"
