@@ -412,7 +412,7 @@ public class ScatterTool : EditorWindow
 
             if (Vector3.Distance(placedObjects[i].transform.position, center) < brushRadius)
             {
-                Undo.DestroyObjectImmediate(placedObjects[i]);
+                DestroyImmediate(placedObjects[i]);
                 placedObjects.RemoveAt(i);
             }
         }
@@ -508,7 +508,7 @@ public class ScatterTool : EditorWindow
         foreach (var obj in placedObjects)
         {
             if (obj != null)
-                Undo.DestroyObjectImmediate(obj);
+                DestroyImmediate(obj);
         }
         placedObjects.Clear();
     }
@@ -532,6 +532,24 @@ public class ScatterTool : EditorWindow
         EditorPrefs.SetBool(PREFS_PREFIX + "enableBrush", enableBrush);
         EditorPrefs.SetFloat(PREFS_PREFIX + "brushRadius", brushRadius);
         EditorPrefs.SetInt(PREFS_PREFIX + "brushDensity", brushDensity);
+        EditorPrefs.SetBool(PREFS_PREFIX + "alignNormal", alignToNormal);
+        EditorPrefs.SetFloat(PREFS_PREFIX + "normalBlend", normalBlend);
+
+        if (scatterSplatMap != null)
+            EditorPrefs.SetString(PREFS_PREFIX + "splatMapGUID",
+                AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(scatterSplatMap)));
+
+        // Сохраняем префабы (до 10)
+        int prefabCount = Mathf.Min(prefabs.Count, 10);
+        EditorPrefs.SetInt(PREFS_PREFIX + "prefabCount", prefabCount);
+        for (int i = 0; i < prefabCount; i++)
+        {
+            string guid = "";
+            if (prefabs[i].prefab != null)
+                guid = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(prefabs[i].prefab));
+            EditorPrefs.SetString(PREFS_PREFIX + "prefab_" + i, guid);
+            EditorPrefs.SetFloat(PREFS_PREFIX + "prefabW_" + i, prefabs[i].weight);
+        }
     }
 
     private void LoadPrefs()
@@ -551,5 +569,32 @@ public class ScatterTool : EditorWindow
         enableBrush = EditorPrefs.GetBool(PREFS_PREFIX + "enableBrush", false);
         brushRadius = EditorPrefs.GetFloat(PREFS_PREFIX + "brushRadius", 3f);
         brushDensity = EditorPrefs.GetInt(PREFS_PREFIX + "brushDensity", 5);
+        alignToNormal = EditorPrefs.GetBool(PREFS_PREFIX + "alignNormal", false);
+        normalBlend = EditorPrefs.GetFloat(PREFS_PREFIX + "normalBlend", 0.5f);
+
+        string splatGuid = EditorPrefs.GetString(PREFS_PREFIX + "splatMapGUID", "");
+        if (!string.IsNullOrEmpty(splatGuid))
+        {
+            string path = AssetDatabase.GUIDToAssetPath(splatGuid);
+            if (!string.IsNullOrEmpty(path))
+                scatterSplatMap = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+        }
+
+        // Загружаем префабы
+        int prefabCount = EditorPrefs.GetInt(PREFS_PREFIX + "prefabCount", 0);
+        prefabs.Clear();
+        for (int i = 0; i < prefabCount; i++)
+        {
+            string guid = EditorPrefs.GetString(PREFS_PREFIX + "prefab_" + i, "");
+            float w = EditorPrefs.GetFloat(PREFS_PREFIX + "prefabW_" + i, 1f);
+            var entry = new PrefabEntry { weight = w };
+            if (!string.IsNullOrEmpty(guid))
+            {
+                string p = AssetDatabase.GUIDToAssetPath(guid);
+                if (!string.IsNullOrEmpty(p))
+                    entry.prefab = AssetDatabase.LoadAssetAtPath<GameObject>(p);
+            }
+            prefabs.Add(entry);
+        }
     }
 }

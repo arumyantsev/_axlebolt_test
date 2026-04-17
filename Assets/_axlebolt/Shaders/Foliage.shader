@@ -22,6 +22,7 @@ Shader "Axlebolt/Foliage"
         _SwayStrength ("Sway Strength", Range(0, 0.5)) = 0.08
         _FlutterSpeed ("Flutter Speed", Range(0, 20)) = 8.0
         _FlutterStrength ("Flutter Strength", Range(0, 0.1)) = 0.02
+        _SmoothnessScale ("Smoothness Scale", Range(0, 1)) = 0.3
         _AOStrength ("AO Strength (from vertex A)", Range(0, 1)) = 0.5
     }
 
@@ -57,6 +58,7 @@ Shader "Axlebolt/Foliage"
             #pragma multi_compile _ SHADOWS_SHADOWMASK
             #pragma multi_compile _ LIGHTMAP_SHADOW_MIXING
             #pragma multi_compile_fog
+            #pragma multi_compile_instancing
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
@@ -65,6 +67,12 @@ Shader "Axlebolt/Foliage"
 
             TEXTURE2D(_Albedo);     SAMPLER(sampler_Albedo);
             TEXTURE2D(_Normal);     SAMPLER(sampler_Normal);
+
+            // Per-instance Light Probe data
+            UNITY_INSTANCING_BUFFER_START(PerInstance)
+                UNITY_DEFINE_INSTANCED_PROP(half4, _ProbeColor)
+                UNITY_DEFINE_INSTANCED_PROP(half4, _ProbeOcclusion)
+            UNITY_INSTANCING_BUFFER_END(PerInstance)
 
             CBUFFER_START(UnityPerMaterial)
                 half4 _BaseColor;
@@ -78,6 +86,7 @@ Shader "Axlebolt/Foliage"
                 float _SwayStrength;
                 float _FlutterSpeed;
                 float _FlutterStrength;
+                half  _SmoothnessScale;
                 half  _AOStrength;
             CBUFFER_END
 
@@ -105,6 +114,7 @@ Shader "Axlebolt/Foliage"
                 float2 uv         : TEXCOORD0;
                 float2 uv1        : TEXCOORD1;
                 half4  color      : COLOR;
+                UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
             struct Varyings
@@ -118,11 +128,14 @@ Shader "Axlebolt/Foliage"
                 half4  color        : TEXCOORD5;
                 float  fogFactor    : TEXCOORD6;
                 DECLARE_LIGHTMAP_OR_SH(lightmapUV, vertexSH, 7);
+                UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
             Varyings vert(Attributes IN)
             {
                 Varyings OUT = (Varyings)0;
+                UNITY_SETUP_INSTANCE_ID(IN);
+                UNITY_TRANSFER_INSTANCE_ID(IN, OUT);
 
                 // World pos для ветра
                 float3 posWS = TransformObjectToWorld(IN.positionOS.xyz);
@@ -182,7 +195,7 @@ Shader "Axlebolt/Foliage"
                 // 5. Roughness + metallic + AO (listva обычно non-metallic)
                 half roughness = normalRMA.b;
                 half metallic  = normalRMA.a;
-                half smoothness = 1.0 - roughness;
+                half smoothness = (1.0 - roughness) * _SmoothnessScale;
 
                 // AO из vertex color A (как и было)
                 half ao = lerp(1.0, IN.color.a, _AOStrength);
@@ -202,8 +215,16 @@ Shader "Axlebolt/Foliage"
                 surfaceData.masks      = half4(_TranslucentPower, facingSign, 0, 0);
                 surfaceData.alpha      = albedoAlpha.a;
 
-                // 7. Vegetation lighting (backlight + двухсторонний SH)
+                // 7. Vegetation lighting
                 half3 color = AxleboltLighting_Vegetation(surfaceData, AXLEBOLT_GI_ARGS(IN));
+
+                // 8. Per-instance Light Probe tint (от InstancedGrassRenderer)
+                half4 probeCol = UNITY_ACCESS_INSTANCED_PROP(PerInstance, _ProbeColor);
+                if (probeCol.w > 0.5h)
+                {
+                    // probeColor задан — тинтим ambient
+                    color *= probeCol.rgb * 2.0h; // *2 потому что значения ~0.5 = нейтральные
+                }
 
                 color = MixFog(color, IN.fogFactor);
                 return half4(color, 1.0);
@@ -227,6 +248,7 @@ Shader "Axlebolt/Foliage"
             HLSLPROGRAM
             #pragma vertex vertShadow
             #pragma fragment fragShadow
+            #pragma multi_compile_instancing
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/CommonMaterial.hlsl"
@@ -246,6 +268,7 @@ Shader "Axlebolt/Foliage"
                 float _SwayStrength;
                 float _FlutterSpeed;
                 float _FlutterStrength;
+                half  _SmoothnessScale;
                 half  _AOStrength;
             CBUFFER_END
 
@@ -257,6 +280,7 @@ Shader "Axlebolt/Foliage"
                 float3 normalOS   : NORMAL;
                 float2 uv         : TEXCOORD0;
                 half4  color      : COLOR;
+                UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
             struct Varyings
@@ -268,6 +292,7 @@ Shader "Axlebolt/Foliage"
             Varyings vertShadow(Attributes IN)
             {
                 Varyings OUT;
+                UNITY_SETUP_INSTANCE_ID(IN);
                 float3 posWS = TransformObjectToWorld(IN.positionOS.xyz);
                 float3 normWS = TransformObjectToWorldNormal(IN.normalOS);
 
@@ -323,6 +348,7 @@ Shader "Axlebolt/Foliage"
                 float _SwayStrength;
                 float _FlutterSpeed;
                 float _FlutterStrength;
+                half  _SmoothnessScale;
                 half  _AOStrength;
             CBUFFER_END
 

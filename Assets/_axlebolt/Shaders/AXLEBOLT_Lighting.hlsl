@@ -221,7 +221,7 @@ half4 MERCS_AmbientLight(MERCS_SurfaceData s, MERCS_BRDFdata b, float2 lightmapU
 // VEGETATION-специфичные функции (backlight translucency)
 // =============================================================
 
-// Main light для листвы: добавляет backlight через masks.r (translucent power)
+// Main light для листвы: Lambert + BRDF specular + backlight
 half3 MERCS_MainLight_Vegetation(MERCS_SurfaceData s, MERCS_BRDFdata b, half shadowMaskW)
 {
     float4 shadowCoord = TransformWorldToShadowCoord(s.positionWS);
@@ -238,7 +238,7 @@ half3 MERCS_MainLight_Vegetation(MERCS_SurfaceData s, MERCS_BRDFdata b, half sha
     return ((s.albedo + specularMainLight) * mainLight.color * NdotL + backLight) * shadow;
 }
 
-// Ambient для листвы: добавляет ambient translucent через SampleSH(-normal)
+// Ambient для листвы: translucent + reflection (полный PBR)
 half4 MERCS_AmbientLight_Vegetation(MERCS_SurfaceData s, MERCS_BRDFdata b, float2 lightmapUV, half3 vertexSH)
 {
     half3 fresnel = MERCS_Fresnel(s, b);
@@ -276,8 +276,10 @@ half4 MERCS_AmbientLight_Vegetation(MERCS_SurfaceData s, MERCS_BRDFdata b, float
     #else
         shadowMask = unity_ProbesOcclusion;
 
-        // Двухсторонний SH: прямой + обратный с masks.r (translucent)
-        half3 illuminance = SampleSH(s.normalWS) * s.occlusion;
+        half3 illuminance = SampleSHPixel(vertexSH, s.normalWS);
+
+        illuminance *= s.occlusion;
+        // Translucent: обратная сторона
         illuminance += SampleSH(-s.normalWS) * s.masks.r * s.albedo;
 
         half3 diffuseAmbient = s.albedo;
@@ -289,7 +291,7 @@ half4 MERCS_AmbientLight_Vegetation(MERCS_SurfaceData s, MERCS_BRDFdata b, float
     return half4((ambientLight + reflection) * s.occlusion, shadowMask.r);
 }
 
-// Полный цикл для vegetation (Foliage)
+// Полный цикл для vegetation (Foliage) — полный PBR как остальные шейдеры
 half3 AxleboltLighting_Vegetation(inout MERCS_SurfaceData surfaceData, float2 lightmapUV, half3 vertexSH)
 {
     MERCS_BRDFdata brdfData;
